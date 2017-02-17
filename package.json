@@ -4,7 +4,7 @@
   "description": "Create, complete, and manage tasks with your voice from any Alexa device.",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app"
   },
   "repository": {
     "type": "git",
@@ -17,7 +17,6 @@
   },
   "homepage": "https://github.com/williamtdr/alexa-asana#readme",
   "dependencies": {
-    "alexa-app-server": "^3.0.0",
-    "asana": "^0.15.0"
+    "alexa-app-server": "^3.0.0"
   }
 }

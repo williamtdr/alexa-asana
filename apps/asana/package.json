@@ -1,0 +1,15 @@
+{
+  "name": "alexa-asana",
+  "version": "1.0.0",
+  "description": "Create, complete, and manage tasks with your voice from any Alexa device.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "williamtdr",
+  "license": "MIT",
+  "dependencies": {
+    "alexa-app": "^3.1.0",
+    "asana": "^0.15.0"
+  }
+}
