@@ -1,0 +1,16 @@
+# Common IDEs
+.idea/*
+
+# Windows image file caches
+Thumbs.db
+
+# Folder config file
+Desktop.ini
+athena.iml
+
+# Mac crap
+.DS_Store
+
+# Project
+node_modules/
+config/config.json
