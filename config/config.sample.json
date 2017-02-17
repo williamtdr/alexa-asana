@@ -1,0 +1,22 @@
+{
+	"app": {
+		"production": false
+	},
+	"web_server": {
+		"port": 8080,
+		"address": "0.0.0.0",
+		"https": {
+			"private_key": "",
+			"certificate": "",
+			"port": 443
+		}
+	},
+	"asana": {
+		"client_id": "",
+		"client_secret": "",
+		"endpoint": ""
+	},
+	"alexa": {
+		"application_id": ""
+	}
+}
