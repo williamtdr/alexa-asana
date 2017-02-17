@@ -17,6 +17,7 @@
 		"endpoint": ""
 	},
 	"alexa": {
-		"application_id": ""
+		"application_id": "",
+		"redirect_uri": ""
 	}
 }

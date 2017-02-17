@@ -59,7 +59,7 @@ app.get("/", (req, res) => {
 
 // Authorization callback - redirected to from Asana.
 app.get("/oauth_callback", (req, res) => {
-	const code = req.param("code");
+	const code = req.params.code;
 
 	if(code) {
 		const client = createClient();
@@ -70,5 +70,5 @@ app.get("/oauth_callback", (req, res) => {
 			res.redirect('/');
 		});
 	} else
-		res.end("Error getting authorization: " + req.param("error"));
+		res.end("Error getting authorization: " + req.params.error);
 });
