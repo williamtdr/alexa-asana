@@ -3,6 +3,7 @@
 const Asana = require('asana'),
 	  cookieParser = require('cookie-parser'),
 	  session = require('express-session'),
+	  fs = require('fs'),
 	  Config = require('./src/config');
 
 global.config = new Config("config/config.json");
@@ -73,8 +74,11 @@ app.get("/", (req, res) => {
 
 app.post("/authorize_alexa", (req, res) => {
 	const alexa = req.session.alexa;
-
 	res.redirect(alexa.redirect_uri + "#access_token=" + req.session.token + "state=" + alexa.state + "&token_type=bearer");
+});
+
+app.get("/privacy_policy", (req, res) => {
+	res.status(200).contentType('text/html').write(fs.readFileSync("tos.txt")).end();
 });
 
 // Authorization callback - redirected to from Asana.
@@ -84,8 +88,6 @@ app.get("/oauth_callback", (req, res) => {
 	if(code) {
 		const client = createClient();
 		client.app.accessTokenFromCode(code).then((credentials) => {
-			console.log(credentials);
-
 			res.cookie("token", credentials.access_token + "___" + credentials.refresh_token, { maxAge: 60 * 60 * 1000 });
 
 			res.redirect("/");
