@@ -1,6 +1,7 @@
 {
 	"app": {
-		"production": false
+		"production": false,
+		"session_secret": ""
 	},
 	"web_server": {
 		"port": 8080,
@@ -18,6 +19,7 @@
 	},
 	"alexa": {
 		"application_id": "",
-		"redirect_uri": ""
+		"redirect_uri": "",
+		"oauth_token": ""
 	}
 }
