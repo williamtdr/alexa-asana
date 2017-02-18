@@ -10,6 +10,7 @@ const alexa = require('alexa-app'),
 	  Asana = require('asana'),
 	  log = require('../../src/log'),
 	  moment = require('moment'),
+	  natural = require('natural'),
 	  momentRange = require('moment-range');
 
 // Allow this module to be reloaded automatically when code is changed
@@ -24,7 +25,24 @@ const app = new alexa.app("asana"),
 const STATE_READY = 0,
 	  STATE_SELECTING_WORKSPACE = 1;
 
+// Get rid of the deprecation spam, we'll use promises later.
+console.trace = function() {
+
+};
+
 momentRange.extendMoment(moment);
+
+function removeLastInstance(badtext, str) {
+	let charpos = str.lastIndexOf(badtext);
+
+	if(charpos < 0)
+		return str.trim();
+
+	let ptone = str.substring(0, charpos),
+		pttwo = str.substring(charpos + (badtext.length));
+
+	return (ptone + pttwo).trim();
+}
 
 app.pre = (req, res) => {
 	let accessToken = req.sessionDetails.accessToken;
@@ -88,7 +106,7 @@ app.launch((req, res, send) => {
 					response += " \"" + workspaceCounter + "\" is " + workspace.name + ".";
 				}
 
-				response += " Okay, which workspace number should I use?";
+				response += " Okay, say \"use workspace\" followed by a number.";
 			} else {
 				state[req.sessionDetails.accessToken].userState = STATE_READY;
 				state[req.sessionDetails.accessToken].workspace = user.workspaces[0];
@@ -192,12 +210,90 @@ app.intent("GetUpcomingTasks", {
 	}
 );
 
+app.intent("MarkTaskComplete", {
+		"slots": {
+			"Task": "AMAZON.LITERAL"
+		},
+		"utterances": [
+			"mark {walking the dog|Task} as complete",
+			"mark {walking the dog|Task} as done",
+			"mark {walking the dog|Task} as finished",
+			"mark {walking the dog|Task} complete",
+			"mark {walking the dog|Task} done",
+			"mark {walking the dog|Task} finished",
+			"I've finished {walking the dog|Task}",
+			"I'm done with {walking the dog|Task}"
+		]
+	}, (req, res, send) => {
+		let userState = state[req.sessionDetails.accessToken],
+			userTaskName = req.data.request.intent.slots.Task.value;
+
+		for(let badInput of ["complete", "done", "finished", "is", "as", "of"])
+			if(userTaskName.endsWith(badInput))
+				userTaskName = removeLastInstance(badInput, userTaskName);
+
+		if(!userState.workspace) {
+			res.say("Please select a workspace first.");
+
+			return true;
+		}
+
+		const tasks = asanaClients[req.sessionDetails.accessToken].tasks.findAll({
+			assignee: userState.asanaUser.id,
+			workspace: userState.workspace.id,
+			completed_since: "now",
+			opt_fields: 'id,name,assignee_status,completed,due_on'
+		}).then(asanaResponse => {
+			return asanaResponse.data;
+		});
+
+		tasks.then(list => {
+			if(list.length === 0) {
+				res.say("You don't have any unfinished tasks to mark as complete.");
+				send();
+
+				return false;
+			}
+
+			let minLevenshtienDistance = Number.MAX_SAFE_INTEGER,
+				potentialTask;
+
+			for(let task of list) {
+				let ld = natural.LevenshteinDistance(userTaskName, task.name);
+
+				if(ld < minLevenshtienDistance) {
+					minLevenshtienDistance = ld;
+					potentialTask = task;
+				}
+			}
+
+			if(minLevenshtienDistance < 5) {
+				console.log("Marking " + potentialTask.name + " as complete for " + userState.asanaUser.name);
+
+				asanaClients[req.sessionDetails.accessToken].tasks.update(potentialTask.id, {completed: true}).then(status => {
+					res.say("Okay, I've marked \"" + potentialTask.name + "\" as complete. Good job.").shouldEndSession(true);
+					send();
+				});
+			} else {
+				console.log(userTaskName);
+
+				res.say("Sorry, I couldn't find any tasks by that name. Try again.").shouldEndSession(false);
+
+				send();
+			}
+		});
+
+		return false;
+	}
+);
+
 app.intent("SelectWorkspace", {
 		"slots": {
 			"WorkspaceId": "AMAZON.NUMBER"
 		},
 		"utterances": [
-			"{-|WorkspaceId}"
+			"Select workspace {-|WorkspaceId}",
+			"Use workspace {-|WorkspaceId}"
 		]
 	}, (req, res) => {
 		if(state[req.sessionDetails.accessToken].userState !== STATE_SELECTING_WORKSPACE)
