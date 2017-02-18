@@ -58,9 +58,9 @@ app.pre = (req, res) => {
 		},
 	});
 
-	if(!asanaClients[req.sessionId]) {
-		asanaClients[req.sessionId] = client;
-		state[req.sessionId] = {};
+	if(!asanaClients[req.sessionDetails.accessToken]) {
+		asanaClients[req.sessionDetails.accessToken] = client;
+		state[req.sessionDetails.accessToken] = {};
 	}
 
 	return true;
@@ -68,17 +68,16 @@ app.pre = (req, res) => {
 
 // Called when user says "open asana"
 app.launch((req, res, send) => {
-	asanaClients[req.sessionId].users.me()
+	asanaClients[req.sessionDetails.accessToken].users.me()
 		.then((user) => {
 			const userFirstName = user.name.split(" ")[0] || false;
 			let response = "Hello" + (" " + userFirstName || "") + "! ";
 
 			if(user.workspaces.length > 1) {
 				//response = "State engine is at stage one.";
-				state[req.sessionId].userState = STATE_SELECTING_WORKSPACE;
-				state[req.sessionId].workspaces = user.workspaces;
-				state[req.sessionId].asanaUser = user;
-
+				state[req.sessionDetails.accessToken].userState = STATE_SELECTING_WORKSPACE;
+				state[req.sessionDetails.accessToken].workspaces = user.workspaces;
+				state[req.sessionDetails.accessToken].asanaUser = user;
 
 				response = "Welcome to Asana for Alexa. I'm going to list off and number the workspaces on your Asana account. Listen for the one you want to work in.";
 
@@ -91,8 +90,8 @@ app.launch((req, res, send) => {
 
 				response += " Okay, which workspace number should I use?";
 			} else {
-				state[req.sessionId].userState = STATE_READY;
-				state[req.sessionId].workspace = user.workspaces[0];
+				state[req.sessionDetails.accessToken].userState = STATE_READY;
+				state[req.sessionDetails.accessToken].workspace = user.workspaces[0];
 
 				response += "You can ask me about upcoming tasks, to mark tasks as complete, or to create a new task. What do you want to do?";
 			}
@@ -117,7 +116,7 @@ app.intent("GetUpcomingTasks", {
 			"what are my upcoming tasks"
 		]
 	}, (req, res, send) => {
-		const userState = state[req.sessionId],
+		const userState = state[req.sessionDetails.accessToken],
 			  userDate = req.data.request.intent.slots.Timeframe.value;
 
 		if(!userState.workspace) {
@@ -126,7 +125,7 @@ app.intent("GetUpcomingTasks", {
 			return true;
 		}
 
-		const tasks = asanaClients[req.sessionId].tasks.findAll({
+		const tasks = asanaClients[req.sessionDetails.accessToken].tasks.findAll({
 			assignee: userState.asanaUser.id,
 			workspace: userState.workspace.id,
 			completed_since: "now",
@@ -180,13 +179,12 @@ app.intent("GetUpcomingTasks", {
 			for(let taskIndex in list) {
 				let task = list[taskIndex];
 
-				stringifiedList += ", " + (taskIndex === list.length - 1 ? task.name : "and " + task.name);
+				stringifiedList += ", " + (taskIndex != list.length - 1 ? task.name : "and " + task.name);
 			}
 
 			response += stringifiedList.substring(2, stringifiedList.length);
-			res.say(response).shouldEndSession(false);
+			res.say(response).shouldEndSession(true);
 
-			console.log(response);
 			send();
 		});
 
@@ -202,20 +200,20 @@ app.intent("SelectWorkspace", {
 			"{-|WorkspaceId}"
 		]
 	}, (req, res) => {
-		if(state[req.sessionId].userState !== STATE_SELECTING_WORKSPACE)
+		if(state[req.sessionDetails.accessToken].userState !== STATE_SELECTING_WORKSPACE)
 			return true;
 
 		try {
 			const userWorkspaceNumber = parseInt(req.data.request.intent.slots.WorkspaceId.value) - 1,
-				  workspace = state[req.sessionId].workspaces[userWorkspaceNumber];
+				  workspace = state[req.sessionDetails.accessToken].workspaces[userWorkspaceNumber];
 
 			if(workspace) {
-				state[req.sessionId].userState = STATE_READY;
-				state[req.sessionId].workspace = workspace;
+				state[req.sessionDetails.accessToken].userState = STATE_READY;
+				state[req.sessionDetails.accessToken].workspace = workspace;
 
 				res.say("Great! You can ask me about upcoming tasks, to mark tasks as complete, or to create a new task. What do you want to do?").shouldEndSession(false);
 				//res.say("State engine at stage two.").shouldEndSession(false);
-				delete state[req.sessionId].workspaces;
+				delete state[req.sessionDetails.accessToken].workspaces;
 			} else
 				res.say("Sorry, I don't see that workspace in your account. Try again.").shouldEndSession(false);
 		} catch(e) {
