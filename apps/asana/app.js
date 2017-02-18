@@ -137,11 +137,8 @@ app.intent("GetUpcomingTasks", {
 		const userState = state[req.sessionDetails.accessToken],
 			  userDate = req.data.request.intent.slots.Timeframe.value;
 
-		if(!userState.workspace) {
-			res.say("Please select a workspace first.");
-
-			return true;
-		}
+		if(!userState.workspace)
+			return selectWorkspaceHandler(req, res, send);
 
 		const tasks = asanaClients[req.sessionDetails.accessToken].tasks.findAll({
 			assignee: userState.asanaUser.id,
@@ -210,6 +207,68 @@ app.intent("GetUpcomingTasks", {
 	}
 );
 
+function markCompleteHandler(req, res, send) {
+	let userState = state[req.sessionDetails.accessToken],
+		userTaskName = req.data.request.intent.slots.Task.value;
+
+	for(let badInput of ["complete", "done", "finished", "is", "as", "of"])
+		if(userTaskName.endsWith(badInput))
+			userTaskName = removeLastInstance(badInput, userTaskName);
+
+	if(!userState.workspace) {
+		res.say("Please select a workspace first.");
+
+		return true;
+	}
+
+	const tasks = asanaClients[req.sessionDetails.accessToken].tasks.findAll({
+		assignee: userState.asanaUser.id,
+		workspace: userState.workspace.id,
+		completed_since: "now",
+		opt_fields: 'id,name,assignee_status,completed,due_on'
+	}).then(asanaResponse => {
+		return asanaResponse.data;
+	});
+
+	tasks.then(list => {
+		if(list.length === 0) {
+			res.say("You don't have any unfinished tasks to mark as complete.");
+			send();
+
+			return false;
+		}
+
+		let minLevenshtienDistance = Number.MAX_SAFE_INTEGER,
+			potentialTask;
+
+		for(let task of list) {
+			let ld = natural.LevenshteinDistance(userTaskName, task.name);
+
+			if(ld < minLevenshtienDistance) {
+				minLevenshtienDistance = ld;
+				potentialTask = task;
+			}
+		}
+
+		if(minLevenshtienDistance < 5) {
+			console.log("Marking " + potentialTask.name + " as complete for " + userState.asanaUser.name);
+
+			asanaClients[req.sessionDetails.accessToken].tasks.update(potentialTask.id, {completed: true}).then(status => {
+				res.say("Okay, I've marked \"" + potentialTask.name + "\" as complete. Good job.").shouldEndSession(true);
+				send();
+			});
+		} else {
+			console.log(userTaskName);
+
+			res.say("Sorry, I couldn't find any tasks by that name. Try again.").shouldEndSession(false);
+
+			send();
+		}
+	});
+
+	return false;
+}
+
 app.intent("MarkTaskComplete", {
 		"slots": {
 			"Task": "AMAZON.LITERAL"
@@ -221,71 +280,75 @@ app.intent("MarkTaskComplete", {
 			"mark {walking the dog|Task} complete",
 			"mark {walking the dog|Task} done",
 			"mark {walking the dog|Task} finished",
-			"I've finished {walking the dog|Task}",
-			"I'm done with {walking the dog|Task}"
+			"I've finished {walking the dog|Task}"
 		]
 	}, (req, res, send) => {
-		let userState = state[req.sessionDetails.accessToken],
-			userTaskName = req.data.request.intent.slots.Task.value;
+		return markCompleteHandler(req, res, send);
+	}
+);
 
-		for(let badInput of ["complete", "done", "finished", "is", "as", "of"])
-			if(userTaskName.endsWith(badInput))
-				userTaskName = removeLastInstance(badInput, userTaskName);
+app.intent("CreateNewTask", {
+		"slots": {
+			"Task": "AMAZON.LITERAL"
+		},
+		"utterances": [
+			"create a task",
+			"create new task",
+			"create a new task",
+			"make a new task",
+			"make a task",
+			"create task",
+			"make task",
+			"new task",
+			"{task name|Task}"
+		]
+	}, (req, res, send) => {
+		let userState = state[req.sessionDetails.accessToken];
 
-		if(!userState.workspace) {
-			res.say("Please select a workspace first.");
+		console.log(req.data.request.intent.slots);
 
-			return true;
-		}
+		for(let otherAction of ["complete", "done", "finished"])
+			if(req.data.request.intent.slots.Task.value.indexOf(otherAction) > -1)
+				return markCompleteHandler(req, res, send);
 
-		const tasks = asanaClients[req.sessionDetails.accessToken].tasks.findAll({
-			assignee: userState.asanaUser.id,
-			workspace: userState.workspace.id,
-			completed_since: "now",
-			opt_fields: 'id,name,assignee_status,completed,due_on'
-		}).then(asanaResponse => {
-			return asanaResponse.data;
-		});
+		if(!userState.workspace)
+			return selectWorkspaceHandler(req, res, send);
 
-		tasks.then(list => {
-			if(list.length === 0) {
-				res.say("You don't have any unfinished tasks to mark as complete.");
-				send();
-
-				return false;
-			}
-
-			let minLevenshtienDistance = Number.MAX_SAFE_INTEGER,
-				potentialTask;
-
-			for(let task of list) {
-				let ld = natural.LevenshteinDistance(userTaskName, task.name);
-
-				if(ld < minLevenshtienDistance) {
-					minLevenshtienDistance = ld;
-					potentialTask = task;
-				}
-			}
-
-			if(minLevenshtienDistance < 5) {
-				console.log("Marking " + potentialTask.name + " as complete for " + userState.asanaUser.name);
-
-				asanaClients[req.sessionDetails.accessToken].tasks.update(potentialTask.id, {completed: true}).then(status => {
-					res.say("Okay, I've marked \"" + potentialTask.name + "\" as complete. Good job.").shouldEndSession(true);
-					send();
-				});
-			} else {
-				console.log(userTaskName);
-
-				res.say("Sorry, I couldn't find any tasks by that name. Try again.").shouldEndSession(false);
-
-				send();
-			}
-		});
+		res.say("What should the name of your task be?").shouldEndSession(false);
+		send();
 
 		return false;
 	}
 );
+
+function selectWorkspaceHandler(req, res, send) {
+	let input;
+	for(let slotIndex in req.data.request.intent.slots)
+		input = req.data.request.intent.slots[slotIndex];
+
+	if(state[req.sessionDetails.accessToken].userState !== STATE_SELECTING_WORKSPACE)
+		return true;
+
+	try {
+		const userWorkspaceNumber = parseInt(input.value) - 1,
+			  workspace = state[req.sessionDetails.accessToken].workspaces[userWorkspaceNumber];
+
+		if(workspace) {
+			state[req.sessionDetails.accessToken].userState = STATE_READY;
+			state[req.sessionDetails.accessToken].workspace = workspace;
+
+			res.say("Great! You can ask me about upcoming tasks, to mark tasks as complete, or to create a new task. What do you want to do?").shouldEndSession(false);
+			//res.say("State engine at stage two.").shouldEndSession(false);
+			delete state[req.sessionDetails.accessToken].workspaces;
+		} else
+			res.say("Sorry, I don't see that workspace in your account. Try again.").shouldEndSession(false);
+	} catch(e) {
+		res.say("Sorry, I didn't get that. Try again.").shouldEndSession(false);
+	}
+
+	if(typeof send === "function")
+		send();
+}
 
 app.intent("SelectWorkspace", {
 		"slots": {
@@ -296,25 +359,7 @@ app.intent("SelectWorkspace", {
 			"Use workspace {-|WorkspaceId}"
 		]
 	}, (req, res) => {
-		if(state[req.sessionDetails.accessToken].userState !== STATE_SELECTING_WORKSPACE)
-			return true;
-
-		try {
-			const userWorkspaceNumber = parseInt(req.data.request.intent.slots.WorkspaceId.value) - 1,
-				  workspace = state[req.sessionDetails.accessToken].workspaces[userWorkspaceNumber];
-
-			if(workspace) {
-				state[req.sessionDetails.accessToken].userState = STATE_READY;
-				state[req.sessionDetails.accessToken].workspace = workspace;
-
-				res.say("Great! You can ask me about upcoming tasks, to mark tasks as complete, or to create a new task. What do you want to do?").shouldEndSession(false);
-				//res.say("State engine at stage two.").shouldEndSession(false);
-				delete state[req.sessionDetails.accessToken].workspaces;
-			} else
-				res.say("Sorry, I don't see that workspace in your account. Try again.").shouldEndSession(false);
-		} catch(e) {
-			res.say("Sorry, I didn't get that. Try again.").shouldEndSession(false);
-		}
+		selectWorkspaceHandler(req, res);
 	}
 );
 
