@@ -45,12 +45,16 @@ function removeLastInstance(badtext, str) {
 }
 
 app.pre = (req, res) => {
+	if(req.type() === "SessionEndedRequest")
+		return true;
+
 	let accessToken = req.sessionDetails.accessToken;
 
 	if(accessToken && accessToken.indexOf("___") === -1)
 		accessToken = false;
 	
 	if(!accessToken) {
+		console.log("Ending session because of unlinked account");
 		res.linkAccount().shouldEndSession(true).say("Hello! Please link your Asana account in the Alexa app.").send();
 
 		return false;
@@ -134,11 +138,14 @@ app.intent("GetUpcomingTasks", {
 			"what are my upcoming tasks"
 		]
 	}, (req, res, send) => {
-		const userState = state[req.sessionDetails.accessToken],
-			  userDate = req.data.request.intent.slots.Timeframe.value;
+		let userState = state[req.sessionDetails.accessToken],
+			userDate = req.data.request.intent.slots.Timeframe.value || "";
 
 		if(!userState.workspace)
 			return selectWorkspaceHandler(req, res, send);
+
+		if(userDate === "")
+			userDate = moment.getFullYear() + moment().isoWeek();
 
 		const tasks = asanaClients[req.sessionDetails.accessToken].tasks.findAll({
 			assignee: userState.asanaUser.id,
@@ -258,7 +265,7 @@ function markCompleteHandler(req, res, send) {
 				send();
 			});
 		} else {
-			console.log(userTaskName);
+			console.log("Couldn't find task name of `" + userTaskName + "` for " + userState.asanaUser.name);
 
 			res.say("Sorry, I couldn't find any tasks by that name. Try again.").shouldEndSession(false);
 
@@ -305,21 +312,69 @@ app.intent("CreateNewTask", {
 	}, (req, res, send) => {
 		let userState = state[req.sessionDetails.accessToken];
 
-		console.log(req.data.request.intent.slots);
-
-		for(let otherAction of ["complete", "done", "finished"])
-			if(req.data.request.intent.slots.Task.value.indexOf(otherAction) > -1)
-				return markCompleteHandler(req, res, send);
-
 		if(!userState.workspace)
 			return selectWorkspaceHandler(req, res, send);
 
-		res.say("What should the name of your task be?").shouldEndSession(false);
-		send();
+		if(typeof req.data.request.intent !== "undefined" && typeof req.data.request.intent.slots.Task !== "undefined") {
+			for(let otherAction of ["complete", "done", "finished"])
+				if(req.data.request.intent.slots.Task.value.indexOf(otherAction) > -1)
+					return markCompleteHandler(req, res, send);
+				else {
+					let taskName = req.data.request.intent.slots.Task.value;
+
+					if(taskName.length < 3) {
+						res.say("What should the name of your task be?").shouldEndSession(false);
+						send();
+					} else
+						asanaClients[req.sessionDetails.accessToken].tasks.create({
+							assignee: userState.asanaUser.id,
+							workspace: userState.workspace.id,
+							name: taskName
+						}).then(asanaResponse => {
+							res.say("Okay, I've created a task named `" + taskName + "` in your account.");
+							send();
+						});
+				}
+		} else {
+			res.say("What should the name of your task be?").shouldEndSession(false);
+			send();
+		}
 
 		return false;
 	}
 );
+
+app.intent("Help", {
+		"slots": {},
+		"utterances": [
+			"help",
+			"what can I ask you",
+			"commands",
+			"actions"
+		]
+	}, (req, res) => {
+		res.say("You can ask me about upcoming tasks, to mark tasks as complete, or to create a new task.").shouldEndSession(false);
+	}
+);
+
+function quitHandler(req, res) {
+	console.log("Exiting app...");
+	res.shouldEndSession(true);
+}
+
+app.intent("Exit", {
+		"slots": {},
+		"utterances": [
+			"quit",
+			"cancel",
+			"goodbye",
+			"exit program",
+			"exit"
+		]
+	}, quitHandler
+);
+
+app.sessionEnded(quitHandler);
 
 function selectWorkspaceHandler(req, res, send) {
 	let input;
@@ -366,7 +421,7 @@ app.intent("SelectWorkspace", {
 // Last-resort error method (unknown intent, etc)
 app.post = (request, response, type, exception) => {
 	if(exception) {
-		response.say("Sorry, an error occurred!").send();
+		response.say("Sorry, I don't know how to answer that request.").send();
 		console.log(exception);
 		console.log(exception.stack);
 	}
