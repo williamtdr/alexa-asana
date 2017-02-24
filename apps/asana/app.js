@@ -23,12 +23,11 @@ const app = new alexa.app("asana"),
 
 // Constants
 const STATE_READY = 0,
-	  STATE_SELECTING_WORKSPACE = 1;
+	  STATE_SELECTING_WORKSPACE = 1,
+	  STATE_CREATING_TASK = 2;
 
 // Get rid of the deprecation spam, we'll use promises later.
-console.trace = function() {
-
-};
+console.trace = function() {};
 
 momentRange.extendMoment(moment);
 
@@ -101,7 +100,7 @@ app.launch((req, res, send) => {
 				state[req.sessionDetails.accessToken].workspaces = user.workspaces;
 				state[req.sessionDetails.accessToken].asanaUser = user;
 
-				response = "Welcome to Asana for Alexa. I'm going to list off and number the workspaces on your Asana account. Listen for the one you want to work in.";
+				response = "Welcome to To-Do Helper, an unofficial Asana integration for Alexa. I'm going to list off and number the workspaces on your Asana account. Listen for the one you want to work in.";
 
 				let workspaceCounter = 0;
 				for(let workspace of user.workspaces) {
@@ -145,7 +144,7 @@ app.intent("GetUpcomingTasks", {
 			return selectWorkspaceHandler(req, res, send);
 
 		if(userDate === "")
-			userDate = moment.getFullYear() + moment().isoWeek();
+			userDate = moment().year() + "-W" + moment().isoWeek();
 
 		const tasks = asanaClients[req.sessionDetails.accessToken].tasks.findAll({
 			assignee: userState.asanaUser.id,
@@ -176,6 +175,8 @@ app.intent("GetUpcomingTasks", {
 
 				return false;
 			}
+
+			console.log("Listing tasks for " + userState.asanaUser.name + " in " + userDate);
 
 			let formattedTimeDelta;
 			if(weekNumber) {
@@ -221,6 +222,9 @@ function markCompleteHandler(req, res, send) {
 	for(let badInput of ["complete", "done", "finished", "is", "as", "of"])
 		if(userTaskName.endsWith(badInput))
 			userTaskName = removeLastInstance(badInput, userTaskName);
+
+	if(state[req.sessionDetails.accessToken].userState === STATE_CREATING_TASK)
+		return createTaskHandler(req, res, send);
 
 	if(!userState.workspace) {
 		res.say("Please select a workspace first.");
@@ -294,6 +298,48 @@ app.intent("MarkTaskComplete", {
 	}
 );
 
+function createTaskHandler(req, res, send) {
+	let userState = state[req.sessionDetails.accessToken];
+
+	if(!userState.workspace)
+		return selectWorkspaceHandler(req, res, send);
+
+	if(typeof req.data.request.intent !== "undefined" && typeof req.data.request.intent.slots.Task !== "undefined")
+		for(let otherAction of ["complete", "done", "finished"]) {
+			let slots = req.data.request.intent.slots;
+
+			if(slots.Task.value && slots.Task.value.indexOf(otherAction) > -1)
+				return markCompleteHandler(req, res, send);
+			else {
+				let taskName = req.data.request.intent.slots.Task.value || "";
+
+				if(taskName.length < 3) {
+					state[req.sessionDetails.accessToken].userState = STATE_CREATING_TASK;
+					res.say("What should the name of your task be?").shouldEndSession(false).send();
+				} else
+					asanaClients[req.sessionDetails.accessToken].tasks.create({
+						assignee: userState.asanaUser.id,
+						workspace: userState.workspace.id,
+						name: taskName
+					}).then(asanaResponse => {
+						console.log("Creating task `" + taskName + "` for " + userState.asanaUser.name);
+
+						state[req.sessionDetails.accessToken].userState = STATE_READY;
+
+						res.say("Okay, I've created a task named `" + taskName + "` in your account.").send();
+					});
+
+				return false;
+			}
+		}
+	else {
+		res.say("What should the name of your task be?").shouldEndSession(false);
+		send();
+	}
+
+	return false;
+}
+
 app.intent("CreateNewTask", {
 		"slots": {
 			"Task": "AMAZON.LITERAL"
@@ -309,39 +355,7 @@ app.intent("CreateNewTask", {
 			"new task",
 			"{task name|Task}"
 		]
-	}, (req, res, send) => {
-		let userState = state[req.sessionDetails.accessToken];
-
-		if(!userState.workspace)
-			return selectWorkspaceHandler(req, res, send);
-
-		if(typeof req.data.request.intent !== "undefined" && typeof req.data.request.intent.slots.Task !== "undefined") {
-			for(let otherAction of ["complete", "done", "finished"])
-				if(req.data.request.intent.slots.Task.value.indexOf(otherAction) > -1)
-					return markCompleteHandler(req, res, send);
-				else {
-					let taskName = req.data.request.intent.slots.Task.value;
-
-					if(taskName.length < 3) {
-						res.say("What should the name of your task be?").shouldEndSession(false);
-						send();
-					} else
-						asanaClients[req.sessionDetails.accessToken].tasks.create({
-							assignee: userState.asanaUser.id,
-							workspace: userState.workspace.id,
-							name: taskName
-						}).then(asanaResponse => {
-							res.say("Okay, I've created a task named `" + taskName + "` in your account.");
-							send();
-						});
-				}
-		} else {
-			res.say("What should the name of your task be?").shouldEndSession(false);
-			send();
-		}
-
-		return false;
-	}
+	}, createTaskHandler
 );
 
 app.intent("Help", {
